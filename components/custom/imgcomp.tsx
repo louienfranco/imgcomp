@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import NextImage from "next/image";
 import {
   Card,
   CardContent,
@@ -51,7 +52,6 @@ function baseName(name: string) {
 }
 
 function pickOutputType(inputType: string): OutputType {
-  // Prefer JPEG for photos; WEBP for images that may have transparency (PNG/WEBP/AVIF)
   if (
     inputType.includes("png") ||
     inputType.includes("webp") ||
@@ -101,7 +101,6 @@ async function canvasToBlob(
     canvas.toBlob(resolve, type, quality)
   );
   if (blob) return blob;
-  // Fallback via dataURL
   const dataUrl = canvas.toDataURL(type, quality);
   const res = await fetch(dataUrl);
   return await res.blob();
@@ -135,7 +134,6 @@ export default function ImgComp() {
   const [quality, setQuality] = useState<number>(70); // 1-100
   const [progress, setProgress] = useState<number>(0);
 
-  // User-chosen output type
   const [outType, setOutType] = useState<OutputType>("image/jpeg");
 
   const jobRef = useRef(0);
@@ -163,7 +161,6 @@ export default function ImgComp() {
     setTimeout(() => setProgress(0), 600);
   };
 
-  // Cleanup object URLs when replacing/remounting
   useEffect(() => {
     return () => {
       if (originalUrl) URL.revokeObjectURL(originalUrl);
@@ -183,7 +180,6 @@ export default function ImgComp() {
       }
       setError(null);
 
-      // Cleanup old URLs
       if (originalUrl) URL.revokeObjectURL(originalUrl);
       if (compressed?.url) URL.revokeObjectURL(compressed.url);
 
@@ -193,14 +189,12 @@ export default function ImgComp() {
       setCompressed(null);
       setStatus("ready");
 
-      // Default the output type based on the input (user can change after)
       try {
         setOutType(pickOutputType(picked.type));
       } catch {
         setOutType("image/jpeg");
       }
 
-      // Read dimensions quickly via createImageBitmap fallback to HTMLImageElement
       let width = 0;
       let height = 0;
       try {
@@ -211,7 +205,7 @@ export default function ImgComp() {
           bitmap.close();
         } catch {
           const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-            const im = new Image();
+            const im = new window.Image();
             im.onload = () => resolve(im);
             im.onerror = () => reject(new Error("Failed to load image."));
             im.src = objUrl;
@@ -220,7 +214,7 @@ export default function ImgComp() {
           height = img.naturalHeight || img.height;
         }
       } catch {
-        // ignore, keep 0
+        // ignore
       }
 
       setOriginalMeta({
@@ -249,7 +243,6 @@ export default function ImgComp() {
 
       const myJob = ++jobRef.current;
       try {
-        // Load source
         let source: CanvasImageSource;
         let sw = originalMeta.width;
         let sh = originalMeta.height;
@@ -261,7 +254,7 @@ export default function ImgComp() {
           sh = bitmap.height || sh;
         } catch {
           const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-            const im = new Image();
+            const im = new window.Image();
             im.onload = () => resolve(im);
             im.onerror = () => reject(new Error("Failed to load image."));
             im.src = originalUrl!;
@@ -279,7 +272,6 @@ export default function ImgComp() {
         const ctx = canvas.getContext("2d", { willReadFrequently: false });
         if (!ctx) throw new Error("Canvas not supported in this browser.");
 
-        // Draw (fill white for JPEG to avoid black transparent areas)
         ctx.clearRect(0, 0, w, h);
         if (outType === "image/jpeg") {
           ctx.fillStyle = "#ffffff";
@@ -287,18 +279,13 @@ export default function ImgComp() {
         }
         ctx.drawImage(source, 0, 0, w, h);
 
-        // Quality in [0,1]; for PNG many browsers ignore quality (lossless)
         const q01 = Math.min(1, Math.max(0.05, q / 100));
-
         const blob = await canvasToBlob(canvas, outType, q01);
 
-        // If another job already started, ignore this result
         if (jobRef.current !== myJob) return;
 
-        // Create object URL
         const url = URL.createObjectURL(blob);
 
-        // Cleanup previous compressed URL
         setCompressed((prev) => {
           if (prev?.url) URL.revokeObjectURL(prev.url);
           return {
@@ -323,7 +310,6 @@ export default function ImgComp() {
     [file, originalMeta, originalUrl, computeTargetSize, outType]
   );
 
-  // Auto compress when a file is selected or when quality/output type changes (debounced)
   useEffect(() => {
     if (!file || !originalMeta) return;
     const t = setTimeout(() => {
@@ -362,7 +348,6 @@ export default function ImgComp() {
     fileInputRef.current?.click();
   }, []);
 
-  // Stop propagation so we don't trigger the dropzone click too (prevents double picker)
   const onBrowseClick = useCallback(
     (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
@@ -585,10 +570,13 @@ export default function ImgComp() {
               <CardContent className="space-y-4">
                 <div className="relative aspect-[4/3] w-full overflow-hidden rounded-md bg-muted">
                   {originalUrl && (
-                    <img
+                    <NextImage
                       src={originalUrl}
-                      alt="Original"
-                      className="h-full w-full object-contain"
+                      alt="Original image preview"
+                      fill
+                      unoptimized
+                      className="object-contain"
+                      sizes="(max-width: 768px) 100vw, 50vw"
                     />
                   )}
                 </div>
@@ -628,10 +616,13 @@ export default function ImgComp() {
                     </div>
                   )}
                   {compressed?.url ? (
-                    <img
+                    <NextImage
                       src={compressed.url}
-                      alt="Compressed"
-                      className="h-full w-full object-contain"
+                      alt="Compressed image preview"
+                      fill
+                      unoptimized
+                      className="object-contain"
+                      sizes="(max-width: 768px) 100vw, 50vw"
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
